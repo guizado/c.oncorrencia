@@ -149,11 +149,17 @@ void applyCommands(void *arg){
     }
 }
 
-void args(int argc, char *argv[], FILE **in, FILE **out, int *ss) {
+void args(int argc, char *argv[], FILE *in, FILE *out, int *ss) {
     if (argc != 5) {
         printf("ERROR: invalid argument number\n");
         exit(EXIT_FAILURE);
     }
+    if (argv[1] != 0){
+        exit(EXIT_FAILURE);}
+    
+    if (argv[1] != 0){
+        exit(EXIT_FAILURE);}
+	
     *in = fopen(argv[1], "r");
     *out = fopen(argv[2], "w");
     if ((numberThreads = atoi(argv[3])) <= 0) {
@@ -216,18 +222,20 @@ int main(int argc, char* argv[]) {
     /* Start timer */
     gettimeofday(&ti, NULL);
     /* Initialize global mutex, create thread pool and apply commands with those threads */
-    createThreadPool(tid_arr, strat);
-    sleep(5);
+    createThreadPool(tid_arr, strat);    
     /* join threads and release allocated memory */
     destroyThreadPool(tid_arr);
+    /* Stop timer and print elapsed time to output file*/
+    gettimeofday(&tf, NULL);
+    final_time = (tf.tv_sec - ti.tv_sec)*1.0 + (tf.tv_usec - ti.tv_usec)/1000000.0;
+    fprintf(outputF, "TecnicoFS completed in %.4f seconds\n", final_time);
     /* print tree */
     print_tecnicofs_tree(outputF);
     /* release allocated memory */
     destroy_fs();
-    /* Stop timer and print elapsed time to output file*/
-    gettimeofday(&tf, NULL);
-    final_time = (tf.tv_sec - ti.tv_sec)*1.0 + (tf.tv_usec - ti.tv_usec)/1000000.0;
-    fprintf(outputF, "%f s\n", final_time);
+    
+    
+    fclose(inputF);
+    fclose(outputF);
     exit(EXIT_SUCCESS);
 }
-
