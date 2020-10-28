@@ -1,1 +1,2 @@
-# projSO
+# Sistemas Operativos
+Segunda parte
