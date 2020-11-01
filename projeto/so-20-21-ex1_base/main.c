@@ -149,7 +149,7 @@ void applyCommands(void *arg){
     }
 }
 
-void args(int argc, char *argv[], FILE *in, FILE *out, int *ss) {
+void args(int argc, char *argv[], FILE **in, FILE **out, int *ss) {
     if (argc != 5) {
         printf("ERROR: invalid argument number\n");
         exit(EXIT_FAILURE);
