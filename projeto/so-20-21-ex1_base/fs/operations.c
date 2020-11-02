@@ -118,15 +118,16 @@ int is_dir_empty(DirEntry *dirEntries, int strat) {
 	if (dirEntries == NULL) {
 		return FAIL;
 	}
+    lock(strat,1);
 	for (int i = 0; i < MAX_DIR_ENTRIES; i++) {
-        lock(strat,1);
+    
 		if (dirEntries[i].inumber != FREE_INODE) {
             unlock(strat);
 			return FAIL;
             
 		}
-        unlock(strat);
 	}
+    unlock(strat);
 	return SUCCESS;
 }
 
@@ -144,14 +145,14 @@ int lookup_sub_node(char *name, DirEntry *entries, int strat) {
 	if (entries == NULL) {
 		return FAIL;
 	}
+    lock(strat,1);
 	for (int i = 0; i < MAX_DIR_ENTRIES; i++) {
-        lock(strat,1);
         if (entries[i].inumber != FREE_INODE && strcmp(entries[i].name, name) == 0) {
             unlock(strat);
             return entries[i].inumber;
         }
-        unlock(strat);
     }
+    unlock(strat);
 	return FAIL;
 }
 
@@ -278,8 +279,9 @@ int delete(char *name, int strat){
         unlock(strat);
 		return FAIL;
 	}
+    unlock(strat);
     
-
+    lock(strat,0);
 	if (inode_delete(child_inumber) == FAIL) {
 		printf("could not delete inode number %d from dir %s\n",
 		       child_inumber, parent_name);
