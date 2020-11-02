@@ -109,7 +109,6 @@ void applyCommands(void *arg){
                 exit(EXIT_FAILURE);
             }
         }
-        printf("%s\n", command);
         if (command == NULL){
             break;
         }
