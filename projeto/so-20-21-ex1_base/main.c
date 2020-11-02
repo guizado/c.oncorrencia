@@ -16,10 +16,44 @@ typedef enum synchStrategy {NOSYNC, MUTEX, RWLOCK} synchStrategy;
 int numberThreads = 0;
 
 pthread_mutex_t globalMutex;
+pthread_mutex_t fsMutex;
+pthread_rwlock_t fsRWLock;
 
 char inputCommands[MAX_COMMANDS][MAX_INPUT_SIZE];
 int numberCommands = 0;
 int headQueue = 0;
+
+void lock(int strat) {
+    switch (strat) {
+        case 0:
+            break;
+        case 1:
+            if (pthread_mutex_lock(&fsMutex) != 0) exit(EXIT_FAILURE);
+            break;
+        case 2:
+            if (pthread_rwlock_wrlock(&fsRWLock) != 0) exit(EXIT_FAILURE);
+            break;
+        default:
+            /* ERROR */
+            break;          
+    }
+}
+
+void unlock(int strat) {
+    switch (strat) {
+        case 0:
+            break;
+        case 1:
+            if (pthread_mutex_unlock(&fsMutex) != 0) exit(EXIT_FAILURE);
+            break;
+        case 2:
+            if (pthread_rwlock_unlock(&fsRWLock) != 0) exit(EXIT_FAILURE);
+            break;
+        default:
+            /*ERROR*/
+            break;
+    }
+}
 
 
 int insertCommand(char* data) {
@@ -126,11 +160,15 @@ void applyCommands(void *arg){
                 switch (type) {
                     case 'f':
                         printf("Create file: %s\n", name);
-                        create(name, T_FILE, strat);
+                        lock(strat);
+                        create(name, T_FILE);
+                        unlock(strat);
                         break;
                     case 'd':
                         printf("Create directory: %s\n", name);
-                        create(name, T_DIRECTORY, strat);
+                        lock(strat);
+                        create(name, T_DIRECTORY);
+                        unlock(strat);
                         break;
                     default:
                         fprintf(stderr, "Error: invalid node type\n");
@@ -138,7 +176,9 @@ void applyCommands(void *arg){
                 }
                 break;
             case 'l': 
-                searchResult = lookup(name, strat);
+                lock(strat);
+                searchResult = lookup(name);
+                unlock(strat);
                 if (searchResult >= 0)
                     printf("Search: %s found\n", name);
                 else
@@ -146,7 +186,9 @@ void applyCommands(void *arg){
                 break;
             case 'd':
                 printf("Delete: %s\n", name);
-                delete(name, strat);
+                lock(strat);
+                delete(name);
+                unlock(strat);
                 break;
             default: { /* error */
                 fprintf(stderr, "Error: command to apply\n");
@@ -193,15 +235,37 @@ pthread_t * createThreadPool(int strat) {
     int i;
     pthread_t *tid_arr;
     if (numberThreads > 1) {
-        if (pthread_mutex_init(&globalMutex, NULL) != 0) {
+        if (pthread_mutex_init(&globalMutex, NULL) || pthread_mutex_init(&fsMutex, NULL)) {
             printf("ERROR: unsuccessful mutex initialization\n");
             exit(EXIT_FAILURE);
         }
+        if (pthread_rwlock_init(&fsRWLock, NULL)) {
+            printf("ERROR: unsuccessful rw-lock initialization\n");
+            exit(EXIT_FAILURE);
+        }
+
     }
     tid_arr = (pthread_t*) malloc(sizeof(pthread_t) * (numberThreads));
     for (i = 0; i < numberThreads; i++){
         if (pthread_create((&tid_arr[i]), NULL, (void*)applyCommands, (void*)&strat) != 0) {
-            printf("ERROR: unsuccessful thread creation");
+            printf("ERROR: unsuccessful thread creation\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    for (i = 0; i < numberThreads; i++) {
+        if (pthread_join(tid_arr[i], NULL) != 0) {
+            printf("ERROR: unsuccessful thread join\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    free(tid_arr);
+    if (numberThreads > 1) {
+        if (pthread_mutex_destroy(&globalMutex) || pthread_mutex_destroy(&fsMutex)) {
+            printf("ERROR: unsuccessful mutex destructio\n");
+            exit(EXIT_FAILURE);
+        }
+        if (pthread_rwlock_destroy(&fsRWLock)) {
+            printf("ERROR: rw-lock destruction\n");
             exit(EXIT_FAILURE);
         }
     }
@@ -212,10 +276,21 @@ void joinThreadPool(pthread_t *tid_arr) {
     int i;
     for (i = 0; i < numberThreads; i++) {
         if (pthread_join(tid_arr[i], NULL) != 0) {
-            printf("ERROR: unsuccessful thread join");
+            printf("ERROR: unsuccessful thread join\n");
             exit(EXIT_FAILURE);
         }
-    }    
+    }
+    free(tid_arr);
+    if (numberThreads > 1) {
+        if (pthread_mutex_destroy(&globalMutex) || pthread_mutex_destroy(&fsMutex)) {
+            printf("ERROR: unsuccessful mutex destructio\n");
+            exit(EXIT_FAILURE);
+        }
+        if (pthread_rwlock_destroy(&fsRWLock)) {
+            printf("ERROR: rw-lock destruction\n");
+            exit(EXIT_FAILURE);
+        }
+    }
 }
 
 
@@ -236,15 +311,8 @@ int main(int argc, char* argv[]) {
     /* Initialize global mutex, create thread pool and apply commands with those threads */
     tid_arr = createThreadPool(strat); 
     /* join threads and release allocated memory */
-    joinThreadPool(tid_arr);
-    free(tid_arr);
-    if (numberThreads > 1) {
-        if (pthread_mutex_destroy(&globalMutex) != 0) {
-            printf("ERROR: unsuccessful mutex destruction");
-            exit(EXIT_FAILURE);
-        }
-    }
-    /* Stop timer and print elapsed time to output file*/
+    //joinThreadPool(tid_arr);
+    /* Stop timer and print elapsed time*/
     gettimeofday(&tf, NULL);
     final_time = (tf.tv_sec - ti.tv_sec)*1.0 + (tf.tv_usec - ti.tv_usec)/1000000.0;
     printf("TecnicoFS completed in %.4f seconds\n", final_time);

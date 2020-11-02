@@ -5,43 +5,7 @@
 #include <pthread.h>
 
 
-pthread_mutex_t fsMutex;
-pthread_rwlock_t fsRWLock;
-int strat = 0;
 
-
-void lock(int strat, int op) {
-    switch (strat) {
-        case 0:
-            break;
-        case 1:
-            if (pthread_mutex_lock(&fsMutex) != 0) exit(EXIT_FAILURE);
-            break;
-        case 2:
-            if (op) {
-                if (pthread_rwlock_rdlock(&fsRWLock) != 0) exit(EXIT_FAILURE);
-                }
-            else if (pthread_rwlock_wrlock(&fsRWLock) != 0) exit(EXIT_FAILURE);
-            break;
-        default:
-            break;          
-    }
-}
-
-void unlock(int strat) {
-    switch (strat) {
-        case 0:
-            break;
-        case 1:
-            if (pthread_mutex_unlock(&fsMutex) != 0) exit(EXIT_FAILURE);
-            break;
-        case 2:
-            if (pthread_rwlock_unlock(&fsRWLock) != 0) exit(EXIT_FAILURE);
-            break;
-        default:
-            break;
-    }
-}
 /* Given a path, fills pointers with strings for the parent path and child
  * file name
  * Input:
@@ -92,8 +56,6 @@ void init_fs() {
 		printf("failed to create node for tecnicofs root\n");
 		exit(EXIT_FAILURE);
 	}
-    if (pthread_mutex_init(&fsMutex, NULL) != 0) exit(EXIT_FAILURE);
-    if (pthread_rwlock_init(&fsRWLock, NULL) != 0) exit(EXIT_FAILURE);
 }
 
 
@@ -102,8 +64,6 @@ void init_fs() {
  */
 void destroy_fs() {
 	inode_table_destroy();
-    if (pthread_mutex_destroy(&fsMutex) != 0) exit(EXIT_FAILURE);
-    if (pthread_rwlock_destroy(&fsRWLock) != 0) exit(EXIT_FAILURE);
 }
 
 
@@ -114,20 +74,16 @@ void destroy_fs() {
  * Returns: SUCCESS or FAIL
  */
 
-int is_dir_empty(DirEntry *dirEntries, int strat) {
+int is_dir_empty(DirEntry *dirEntries) {
 	if (dirEntries == NULL) {
 		return FAIL;
 	}
-    lock(strat,1);
 	for (int i = 0; i < MAX_DIR_ENTRIES; i++) {
     
 		if (dirEntries[i].inumber != FREE_INODE) {
-            unlock(strat);
-			return FAIL;
-            
+			return FAIL; 
 		}
 	}
-    unlock(strat);
 	return SUCCESS;
 }
 
@@ -141,18 +97,15 @@ int is_dir_empty(DirEntry *dirEntries, int strat) {
  *  - inumber: found node's inumber
  *  - FAIL: if not found
  */
-int lookup_sub_node(char *name, DirEntry *entries, int strat) {
+int lookup_sub_node(char *name, DirEntry *entries) {
 	if (entries == NULL) {
 		return FAIL;
 	}
-    lock(strat,1);
 	for (int i = 0; i < MAX_DIR_ENTRIES; i++) {
         if (entries[i].inumber != FREE_INODE && strcmp(entries[i].name, name) == 0) {
-            unlock(strat);
             return entries[i].inumber;
         }
     }
-    unlock(strat);
 	return FAIL;
 }
 
@@ -164,7 +117,7 @@ int lookup_sub_node(char *name, DirEntry *entries, int strat) {
  *  - nodeType: type of node
  * Returns: SUCCESS or FAIL
  */
-int create(char *name, type nodeType, int strat){
+int create(char *name, type nodeType){
 
 	int parent_inumber, child_inumber;
 	char *parent_name, *child_name, name_copy[MAX_FILE_NAME];
@@ -175,16 +128,14 @@ int create(char *name, type nodeType, int strat){
 	strcpy(name_copy, name);
 	split_parent_child_from_path(name_copy, &parent_name, &child_name);
 
-	parent_inumber = lookup(parent_name, strat);
+	parent_inumber = lookup(parent_name);
 
 	if (parent_inumber == FAIL) {
 		printf("failed to create %s, invalid parent dir %s\n",
 		        name, parent_name);
 		return FAIL;
 	}
-    lock(strat,1);
 	inode_get(parent_inumber, &pType, &pdata);
-    unlock(strat);
 
 	if (pType != T_DIRECTORY) {
 		printf("failed to create %s, parent %s is not a dir\n",
@@ -192,29 +143,24 @@ int create(char *name, type nodeType, int strat){
 		return FAIL;
 	}
 
-	if (lookup_sub_node(child_name, pdata.dirEntries, strat) != FAIL) {
+	if (lookup_sub_node(child_name, pdata.dirEntries) != FAIL) {
 		printf("failed to create %s, already exists in dir %s\n",
 		       child_name, parent_name);
 		return FAIL;
 	}
 
 	/* create node and add entry to folder that contains new node */
-    lock(strat,0);
 	child_inumber = inode_create(nodeType);
-    unlock(strat);
 	if (child_inumber == FAIL) {
 		printf("failed to create %s in  %s, couldn't allocate inode\n",
 		        child_name, parent_name);
 		return FAIL;
 	}
-    lock(strat, 0);
 	if (dir_add_entry(parent_inumber, child_inumber, child_name) == FAIL) {
 		printf("could not add entry %s in dir %s\n",
 		       child_name, parent_name);
-        unlock(strat);
 		return FAIL;
 	}
-    unlock(strat);
 
 	return SUCCESS;
 }
@@ -226,7 +172,7 @@ int create(char *name, type nodeType, int strat){
  *  - name: path of node
  * Returns: SUCCESS or FAIL
  */
-int delete(char *name, int strat){
+int delete(char *name){
 
 	int parent_inumber, child_inumber;
 	char *parent_name, *child_name, name_copy[MAX_FILE_NAME];
@@ -237,16 +183,14 @@ int delete(char *name, int strat){
 	strcpy(name_copy, name);
 	split_parent_child_from_path(name_copy, &parent_name, &child_name);
 
-	parent_inumber = lookup(parent_name, strat);
+	parent_inumber = lookup(parent_name);
 
 	if (parent_inumber == FAIL) {
 		printf("failed to delete %s, invalid parent dir %s\n",
 		        child_name, parent_name);
 		return FAIL;
 	}
-    lock(strat,1);
 	inode_get(parent_inumber, &pType, &pdata);
-    unlock(strat);
 
 	if(pType != T_DIRECTORY) {
 		printf("failed to delete %s, parent %s is not a dir\n",
@@ -254,41 +198,32 @@ int delete(char *name, int strat){
 		return FAIL;
 	}
 
-	child_inumber = lookup_sub_node(child_name, pdata.dirEntries, strat);
+	child_inumber = lookup_sub_node(child_name, pdata.dirEntries);
 
 	if (child_inumber == FAIL) {
 		printf("could not delete %s, does not exist in dir %s\n",
 		       name, parent_name);
 		return FAIL;
 	}
-    lock(strat, 1);
 	inode_get(child_inumber, &cType, &cdata);
-    unlock(strat);
 
-	if (cType == T_DIRECTORY && is_dir_empty(cdata.dirEntries, strat) == FAIL) {
+	if (cType == T_DIRECTORY && is_dir_empty(cdata.dirEntries) == FAIL) {
 		printf("could not delete %s: is a directory and not empty\n",
 		       name);
 		return FAIL;
 	}
 
 	/* remove entry from folder that contained deleted node */
-    lock(strat,0);
 	if (dir_reset_entry(parent_inumber, child_inumber) == FAIL) {
 		printf("failed to delete %s from dir %s\n",
 		       child_name, parent_name);
-        unlock(strat);
 		return FAIL;
 	}
-    unlock(strat);
-    
-    lock(strat,0);
 	if (inode_delete(child_inumber) == FAIL) {
 		printf("could not delete inode number %d from dir %s\n",
 		       child_inumber, parent_name);
-        unlock(strat);
 		return FAIL;
     }
-	unlock(strat);
 
 	return SUCCESS;
 }
@@ -302,7 +237,7 @@ int delete(char *name, int strat){
  *  inumber: identifier of the i-node, if found
  *     FAIL: otherwise
  */
-int lookup(char *name, int strat) {
+int lookup(char *name) {
 	char full_path[MAX_FILE_NAME];
 	char delim[] = "/";
 
@@ -316,17 +251,13 @@ int lookup(char *name, int strat) {
 	union Data data;
 
 	/* get root inode data */
-    lock(strat,1);
 	inode_get(current_inumber, &nType, &data);
-    unlock(strat);
 
 	char *path = strtok(full_path, delim);
 
 	/* search for all sub nodes */
-	while (path != NULL && (current_inumber = lookup_sub_node(path, data.dirEntries, strat)) != FAIL) {
-        lock(strat,1);
+	while (path != NULL && (current_inumber = lookup_sub_node(path, data.dirEntries)) != FAIL) {
 		inode_get(current_inumber, &nType, &data);
-        unlock(strat);
 		path = strtok(NULL, delim);
 	}
 
