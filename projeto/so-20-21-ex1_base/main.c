@@ -135,7 +135,6 @@ void applyCommands(){
                 exit(EXIT_FAILURE);
             }
         }
-        if (numberCommands < 1) break;
         const char* command = removeCommand();
         if (numberThreads > 1) {
             if (pthread_mutex_unlock(&globalMutex) != 0) {
@@ -144,7 +143,7 @@ void applyCommands(){
             }
         }
         if (command == NULL){
-            break;
+            return;
         }
         char token, type;
         char name[MAX_INPUT_SIZE];
@@ -196,6 +195,7 @@ void applyCommands(){
             }
         }
     }
+    return;
 }
 
 void args(int argc, char *argv[], FILE **in, FILE **out) {
@@ -261,7 +261,7 @@ void threadPool() {
             exit(EXIT_FAILURE);
         }
     }
-    /* free allocated memory and destroy locks */
+    /* Free allocated memory and destroy locks */
     free(tid_arr);
     if (numberThreads > 1) {
         if (pthread_mutex_destroy(&globalMutex) || pthread_mutex_destroy(&fsMutex)) {
