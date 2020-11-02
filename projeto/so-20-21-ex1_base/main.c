@@ -31,7 +31,6 @@ int insertCommand(char* data) {
 }
 
 char* removeCommand() {
-    printf("%lu\n", pthread_self());
     if(numberCommands > 0){
         numberCommands--;
         return inputCommands[headQueue++];  
@@ -96,15 +95,24 @@ void processInput(FILE * inputfile){
 void applyCommands(void *arg){
     int strat = *((int*)arg);
     while (1){
-
-        if (numberThreads > 1) pthread_mutex_lock(&globalMutex);
+        if (numberThreads > 1) {
+            if (pthread_mutex_lock(&globalMutex) != 0) {
+                printf("ERROR: mutex lock\n");
+                exit(EXIT_FAILURE);
+            }
+        }
         if (numberCommands < 1) break;
         const char* command = removeCommand();
-        if (numberThreads > 1) pthread_mutex_unlock(&globalMutex);
-        if (command == NULL){
-            continue;
+        if (numberThreads > 1) {
+            if (pthread_mutex_unlock(&globalMutex) != 0) {
+                printf("ERROR: mutex unlock");
+                exit(EXIT_FAILURE);
+            }
         }
-
+        printf("%s\n", command);
+        if (command == NULL){
+            break;
+        }
         char token, type;
         char name[MAX_INPUT_SIZE];
         int numTokens = sscanf(command, "%c %s %c", &token, name, &type);
@@ -154,14 +162,16 @@ void args(int argc, char *argv[], FILE **in, FILE **out, int *ss) {
         printf("ERROR: invalid argument number\n");
         exit(EXIT_FAILURE);
     }
-    if (argv[1] != 0){
-        exit(EXIT_FAILURE);}
-    
-    if (argv[1] != 0){
-        exit(EXIT_FAILURE);}
-	
     *in = fopen(argv[1], "r");
+    if (*in == NULL) {
+        printf("ERROR: invalid input file\n");
+        exit(EXIT_FAILURE);
+    }
     *out = fopen(argv[2], "w");
+    if (*out == NULL) {
+        printf("ERROR: invalid output file\n");
+        exit(EXIT_FAILURE);
+    }
     if ((numberThreads = atoi(argv[3])) <= 0) {
         printf("ERROR: number of threads must be a positive integer\n");
         exit(EXIT_FAILURE);
@@ -180,36 +190,39 @@ void args(int argc, char *argv[], FILE **in, FILE **out, int *ss) {
 }
 
 
-void createThreadPool(pthread_t *tid_arr, int strat) {
+pthread_t * createThreadPool(int strat) {
+    int i;
+    pthread_t *tid_arr;
     if (numberThreads > 1) {
-        pthread_mutex_init(&globalMutex, NULL);
+        if (pthread_mutex_init(&globalMutex, NULL) != 0) {
+            printf("ERROR: unsuccessful mutex initialization\n");
+            exit(EXIT_FAILURE);
+        }
     }
     tid_arr = (pthread_t*) malloc(sizeof(pthread_t) * (numberThreads));
-    for (int i = 0; i < numberThreads; i++){
-        if (pthread_create(((pthread_t*)&tid_arr[i]), NULL, (void*)applyCommands, (void*)&strat) != 0) {
+    for (i = 0; i < numberThreads; i++){
+        if (pthread_create((&tid_arr[i]), NULL, (void*)applyCommands, (void*)&strat) != 0) {
             printf("ERROR: unsuccessful thread creation");
             exit(EXIT_FAILURE);
         }
     }
+    return tid_arr;
 }
 
-
-
-void destroyThreadPool(pthread_t *tid_arr) {
-    for (int i = numberThreads; i >= 0; i++) {
+void joinThreadPool(pthread_t *tid_arr) {
+    int i;
+    for (i = 0; i < numberThreads; i++) {
         if (pthread_join(tid_arr[i], NULL) != 0) {
             printf("ERROR: unsuccessful thread join");
             exit(EXIT_FAILURE);
         }
-    }
-    free(tid_arr);
-    if (numberThreads > 1) pthread_mutex_destroy(&globalMutex);
+    }    
 }
 
 
 int main(int argc, char* argv[]) {
     int strat;
-    pthread_t *tid_arr = NULL;;
+    pthread_t *tid_arr;
     FILE *inputF, *outputF;
     struct timeval ti, tf;
     double final_time;
@@ -222,20 +235,25 @@ int main(int argc, char* argv[]) {
     /* Start timer */
     gettimeofday(&ti, NULL);
     /* Initialize global mutex, create thread pool and apply commands with those threads */
-    createThreadPool(tid_arr, strat);    
+    tid_arr = createThreadPool(strat); 
     /* join threads and release allocated memory */
-    destroyThreadPool(tid_arr);
+    joinThreadPool(tid_arr);
+    free(tid_arr);
+    if (numberThreads > 1) {
+        if (pthread_mutex_destroy(&globalMutex) != 0) {
+            printf("ERROR: unsuccessful mutex destruction");
+            exit(EXIT_FAILURE);
+        }
+    }
     /* Stop timer and print elapsed time to output file*/
     gettimeofday(&tf, NULL);
     final_time = (tf.tv_sec - ti.tv_sec)*1.0 + (tf.tv_usec - ti.tv_usec)/1000000.0;
-    fprintf(outputF, "TecnicoFS completed in %.4f seconds\n", final_time);
+    printf("TecnicoFS completed in %.4f seconds\n", final_time);
     /* print tree */
     print_tecnicofs_tree(outputF);
     /* release allocated memory */
-    destroy_fs();
-    
-    
-    fclose(inputF);
-    fclose(outputF);
+    destroy_fs();    
+    if (fclose(inputF) != 0) exit(EXIT_FAILURE);
+    if (fclose(outputF) != 0) exit(EXIT_FAILURE);
     exit(EXIT_SUCCESS);
 }
