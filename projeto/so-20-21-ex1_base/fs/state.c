@@ -15,16 +15,74 @@ void insert_delay(int cycles) {
     for (int i = 0; i < cycles; i++) {}
 }
 
+/*
+ * Read-lock or write-lock an i-node.
+ * Input:
+ *  - inumber: identifier of the i-node
+ *  - mode: LREAD to read-lock, WREAD to write-lock
+ * Returns: SUCCESS or FAIL
+ */ 
+int lock(int inumber, lock_mode mode) {
+    int err;
+    if ((inumber < 0) || (inumber > INODE_TABLE_SIZE)) {
+        printf("lock: invalid inumber %d\n", inumber);
+        //return FAIL;
+        exit(EXIT_FAILURE);
+    } 
+    switch (mode) {
+        case LREAD:
+            err = pthread_rwlock_rdlock(&inode_table[inumber].lock);
+            if (err) {
+                printf("lock: read lock error (%d, %s) \n", err, strerror(err));
+                return FAIL;
+            }
+            break;
+        case LWRITE:
+            err = pthread_rwlock_wrlock(&inode_table[inumber].lock);
+            if (err) {
+                printf("lock: write lock error (%d, %s)\n", err, strerror(err));
+                return FAIL;
+            }
+            break;
+    }
+    return SUCCESS;
+}
+
+
+/*
+ * Unlocks an i-node.
+ * Input:
+ *  - inumber: identifier of the i-node
+ * Returns: SUCCESS or FAIL
+ */
+int unlock(int inumber) {
+    int err;
+    if ((inumber < 0) || (inumber > INODE_TABLE_SIZE)) {
+        printf("unlock: invalid inumber\n");
+        return FAIL;
+    } 
+    err = pthread_rwlock_unlock(&inode_table[inumber].lock);
+    if (err) {
+        printf("unlock: unlock error (%d, %s)\n", err, strerror(err));
+        return FAIL;
+    }
+    return SUCCESS;
+}
+
+
 
 /*
  * Initializes the i-nodes table.
+ * Returns: SUCCESS or FAIL
  */
-void inode_table_init() {
+int inode_table_init() {
     for (int i = 0; i < INODE_TABLE_SIZE; i++) {
         inode_table[i].nodeType = T_NONE;
         inode_table[i].data.dirEntries = NULL;
         inode_table[i].data.fileContents = NULL;
+        if (pthread_rwlock_init(&inode_table[i].lock, NULL)) return FAIL;
     }
+    return SUCCESS;
 }
 
 /*
@@ -36,8 +94,7 @@ void inode_table_destroy() {
         if (inode_table[i].nodeType != T_NONE) {
             /* as data is an union, the same pointer is used for both dirEntries and fileContents */
             /* just release one of them */
-	  if (inode_table[i].data.dirEntries)
-            free(inode_table[i].data.dirEntries);
+	        if (inode_table[i].data.dirEntries) free(inode_table[i].data.dirEntries);
         }
     }
 }
@@ -52,11 +109,14 @@ void inode_table_destroy() {
  */
 int inode_create(type nType) {
     /* Used for testing synchronization speedup */
+    insert_delay(DELAY);
 
     for (int inumber = 0; inumber < INODE_TABLE_SIZE; inumber++) {
+        /* Read-lock while searching for an empty i-node */
+        lock(inumber, LREAD);
         if (inode_table[inumber].nodeType == T_NONE) {
+            unlock(inumber); lock(inumber, LWRITE);
             inode_table[inumber].nodeType = nType;
-
             if (nType == T_DIRECTORY) {
                 /* Initializes entry table */
                 inode_table[inumber].data.dirEntries = malloc(sizeof(DirEntry) * MAX_DIR_ENTRIES);
@@ -64,10 +124,13 @@ int inode_create(type nType) {
                 for (int i = 0; i < MAX_DIR_ENTRIES; i++) {
                     inode_table[inumber].data.dirEntries[i].inumber = FREE_INODE;
                 }
+
             }
             else {
                 inode_table[inumber].data.fileContents = NULL;
             }
+            /* Unlock locked i-nodes */
+            for (int i = 0; i < inumber+1; i++) unlock(i);
             return inumber;
         }
     }
@@ -83,9 +146,11 @@ int inode_create(type nType) {
 int inode_delete(int inumber) {
     /* Used for testing synchronization speedup */
     insert_delay(DELAY);
+    lock(inumber, LWRITE);
 
     if ((inumber < 0) || (inumber > INODE_TABLE_SIZE) || (inode_table[inumber].nodeType == T_NONE)) {
         printf("inode_delete: invalid inumber\n");
+        unlock(inumber);
         return FAIL;
     } 
 
@@ -93,6 +158,7 @@ int inode_delete(int inumber) {
     /* see inode_table_destroy function */
     if (inode_table[inumber].data.dirEntries)
         free(inode_table[inumber].data.dirEntries);
+    unlock(inumber);
     return SUCCESS;
 }
 
@@ -108,9 +174,11 @@ int inode_delete(int inumber) {
 int inode_get(int inumber, type *nType, union Data *data) {
     /* Used for testing synchronization speedup */
     insert_delay(DELAY);
+    lock(inumber, LREAD);
 
     if ((inumber < 0) || (inumber > INODE_TABLE_SIZE) || (inode_table[inumber].nodeType == T_NONE)) {
         printf("inode_get: invalid inumber %d\n", inumber);
+        unlock(inumber);
         return FAIL;
     }
 
@@ -119,6 +187,7 @@ int inode_get(int inumber, type *nType, union Data *data) {
 
     if (data)
         *data = inode_table[inumber].data;
+    unlock(inumber);
     return SUCCESS;
 }
 
@@ -134,18 +203,25 @@ int dir_reset_entry(int inumber, int sub_inumber) {
     /* Used for testing synchronization speedup */
     insert_delay(DELAY);
 
+    lock(inumber, LWRITE);
+
     if ((inumber < 0) || (inumber > INODE_TABLE_SIZE) || (inode_table[inumber].nodeType == T_NONE)) {
         printf("inode_reset_entry: invalid inumber\n");
+        unlock(inumber);
         return FAIL;
     }
 
     if (inode_table[inumber].nodeType != T_DIRECTORY) {
         printf("inode_reset_entry: can only reset entry to directories\n");
+        unlock(inumber);
         return FAIL;
     }
 
+    lock(sub_inumber, LWRITE);
+
     if ((sub_inumber < FREE_INODE) || (sub_inumber > INODE_TABLE_SIZE) || (inode_table[sub_inumber].nodeType == T_NONE)) {
         printf("inode_reset_entry: invalid entry inumber\n");
+        unlock(inumber); unlock(sub_inumber);
         return FAIL;
     }
 
@@ -154,9 +230,11 @@ int dir_reset_entry(int inumber, int sub_inumber) {
         if (inode_table[inumber].data.dirEntries[i].inumber == sub_inumber) {
             inode_table[inumber].data.dirEntries[i].inumber = FREE_INODE;
             inode_table[inumber].data.dirEntries[i].name[0] = '\0';
+            unlock(inumber); unlock(sub_inumber);
             return SUCCESS;
         }
     }
+    unlock(inumber); unlock(sub_inumber);
     return FAIL;
 }
 
@@ -173,24 +251,32 @@ int dir_add_entry(int inumber, int sub_inumber, char *sub_name) {
     /* Used for testing synchronization speedup */
     insert_delay(DELAY);
 
+    lock(inumber, LWRITE);
+
     if ((inumber < 0) || (inumber > INODE_TABLE_SIZE) || (inode_table[inumber].nodeType == T_NONE)) {
         printf("inode_add_entry: invalid inumber\n");
+        unlock(inumber);
         return FAIL;
     }
 
     if (inode_table[inumber].nodeType != T_DIRECTORY) {
         printf("inode_add_entry: can only add entry to directories\n");
+        unlock(inumber);
         return FAIL;
     }
 
+    lock(sub_inumber, LWRITE);
+
     if ((sub_inumber < 0) || (sub_inumber > INODE_TABLE_SIZE) || (inode_table[sub_inumber].nodeType == T_NONE)) {
         printf("inode_add_entry: invalid entry inumber\n");
+        unlock(inumber); unlock(sub_inumber);
         return FAIL;
     }
 
     if (strlen(sub_name) == 0 ) {
         printf("inode_add_entry: \
                entry name must be non-empty\n");
+        unlock(inumber); unlock(sub_inumber);
         return FAIL;
     }
     
@@ -198,9 +284,11 @@ int dir_add_entry(int inumber, int sub_inumber, char *sub_name) {
         if (inode_table[inumber].data.dirEntries[i].inumber == FREE_INODE) {
             inode_table[inumber].data.dirEntries[i].inumber = sub_inumber;
             strcpy(inode_table[inumber].data.dirEntries[i].name, sub_name);
+            unlock(inumber); unlock(sub_inumber);
             return SUCCESS;
         }
     }
+    unlock(inumber); unlock(sub_inumber);
     return FAIL;
 }
 
@@ -222,7 +310,7 @@ void inode_print_tree(FILE *fp, int inumber, char *name) {
         for (int i = 0; i < MAX_DIR_ENTRIES; i++) {
             if (inode_table[inumber].data.dirEntries[i].inumber != FREE_INODE) {
                 char path[MAX_FILE_NAME];
-                if (snprintf(path, sizeof(path), "%s/%s", name, inode_table[inumber].data.dirEntries[i].name) > sizeof(path)) {
+                if (snprintf(path, sizeof(path), "%s/%s", name, inode_table[inumber].data.dirEntries[i].name) > (long) sizeof(path)) {
                     fprintf(stderr, "truncation when building full path\n");
                 }
                 inode_print_tree(fp, inode_table[inumber].data.dirEntries[i].inumber, path);

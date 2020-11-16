@@ -79,7 +79,6 @@ int is_dir_empty(DirEntry *dirEntries) {
 		return FAIL;
 	}
 	for (int i = 0; i < MAX_DIR_ENTRIES; i++) {
-    
 		if (dirEntries[i].inumber != FREE_INODE) {
 			return FAIL; 
 		}
@@ -98,6 +97,7 @@ int is_dir_empty(DirEntry *dirEntries) {
  *  - FAIL: if not found
  */
 int lookup_sub_node(char *name, DirEntry *entries) {
+
 	if (entries == NULL) {
 		return FAIL;
 	}
@@ -142,7 +142,6 @@ int create(char *name, type nodeType){
 		        name, parent_name);
 		return FAIL;
 	}
-
 	if (lookup_sub_node(child_name, pdata.dirEntries) != FAIL) {
 		printf("failed to create %s, already exists in dir %s\n",
 		       child_name, parent_name);

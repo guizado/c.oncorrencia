@@ -11,66 +11,53 @@
 #define MAX_COMMANDS 150000
 #define MAX_INPUT_SIZE 100
 
-typedef enum synchStrategy {NOSYNC, MUTEX, RWLOCK} synchStrategy;
-int strat;
-
+/* Global variables */
 int numberThreads = 0;
-
-pthread_mutex_t globalMutex;
-pthread_mutex_t fsMutex;
-pthread_rwlock_t fsRWLock;
-
 char inputCommands[MAX_COMMANDS][MAX_INPUT_SIZE];
-int numberCommands = 0;
-int headQueue = 0;
+int numberCommands = 0; // totalCommands = 0; numberCommandsInserted = 0;
+int insertIndex = 0, removeIndex = 0;
 
-void lock() {
-    switch (strat) {
-        case 0:
-            break;
-        case 1:
-            if (pthread_mutex_lock(&fsMutex) != 0) exit(EXIT_FAILURE);
-            break;
-        case 2:
-            if (pthread_rwlock_wrlock(&fsRWLock) != 0) exit(EXIT_FAILURE);
-            break;
-        default:
-            /* ERROR */
-            break;          
-    }
+pthread_t *tid_arr;
+int finished = 0;
+
+pthread_mutex_t bufferLock;
+pthread_cond_t canInsert, canRemove;
+
+struct timeval ti, tf;
+
+void initLocks() {
+    pthread_mutex_init(&bufferLock, NULL);
+    pthread_cond_init(&canInsert, NULL);
+    pthread_cond_init(&canRemove, NULL);
 }
-
-void unlock() {
-    switch (strat) {
-        case 0:
-            break;
-        case 1:
-            if (pthread_mutex_unlock(&fsMutex) != 0) exit(EXIT_FAILURE);
-            break;
-        case 2:
-            if (pthread_rwlock_unlock(&fsRWLock) != 0) exit(EXIT_FAILURE);
-            break;
-        default:
-            /*ERROR*/
-            break;
-    }
-}
-
 
 int insertCommand(char* data) {
-    if(numberCommands != MAX_COMMANDS) {
-        strcpy(inputCommands[numberCommands++], data);
-        return 1;
-    }
-    return 0;
+    printf("insert\n");
+    pthread_mutex_lock(&bufferLock);
+    while (numberCommands == MAX_COMMANDS) {pthread_cond_wait(&canInsert, &bufferLock);}
+    strcpy(inputCommands[insertIndex++], data);
+    if (insertIndex == MAX_COMMANDS) insertIndex = 0;
+    numberCommands++;
+    pthread_cond_signal(&canRemove);
+    pthread_mutex_unlock(&bufferLock);
+    return 1;
 }
 
 char* removeCommand() {
-    if(numberCommands > 0){
-        numberCommands--;
-        return inputCommands[headQueue++];  
-    }
-    return NULL;
+    char * command;
+    printf("remove\n");
+    pthread_mutex_lock(&bufferLock);
+    while (numberCommands == 0 && !finished) {pthread_cond_wait(&canRemove, &bufferLock);}
+    if (finished && numberCommands == 0) {
+        pthread_mutex_unlock(&bufferLock);
+        return NULL;
+    } 
+    command = inputCommands[removeIndex++];
+    if (removeIndex == MAX_COMMANDS) removeIndex = 0;
+    numberCommands--;
+    pthread_cond_signal(&canInsert);
+    pthread_mutex_unlock(&bufferLock);
+    return command;
 }
 
 
@@ -81,6 +68,9 @@ void errorParse(){
 
 void processInput(FILE * inputfile){
     char line[MAX_INPUT_SIZE];
+
+    /* Start timer */
+    gettimeofday(&ti, NULL);
 
     /* break loop with ^Z or ^D */
     while (fgets(line, sizeof(line)/sizeof(char), inputfile)) {
@@ -123,25 +113,17 @@ void processInput(FILE * inputfile){
             }
         }
     }
+    pthread_mutex_lock(&bufferLock);
+    finished = 1;
+    pthread_cond_broadcast(&canRemove);
+    pthread_mutex_unlock(&bufferLock);
 }
 
 
 
 void applyCommands(){
     while (1){
-        if (numberThreads > 1) {
-            if (pthread_mutex_lock(&globalMutex) != 0) {
-                printf("ERROR: mutex lock\n");
-                exit(EXIT_FAILURE);
-            }
-        }
         const char* command = removeCommand();
-        if (numberThreads > 1) {
-            if (pthread_mutex_unlock(&globalMutex) != 0) {
-                printf("ERROR: mutex unlock");
-                exit(EXIT_FAILURE);
-            }
-        }
         if (command == NULL){
             return;
         }
@@ -159,15 +141,11 @@ void applyCommands(){
                 switch (type) {
                     case 'f':
                         printf("Create file: %s\n", name);
-                        lock();
                         create(name, T_FILE);
-                        unlock();
                         break;
                     case 'd':
                         printf("Create directory: %s\n", name);
-                        lock();
                         create(name, T_DIRECTORY);
-                        unlock();
                         break;
                     default:
                         fprintf(stderr, "Error: invalid node type\n");
@@ -175,9 +153,7 @@ void applyCommands(){
                 }
                 break;
             case 'l': 
-                lock();
                 searchResult = lookup(name);
-                unlock();
                 if (searchResult >= 0)
                     printf("Search: %s found\n", name);
                 else
@@ -185,9 +161,7 @@ void applyCommands(){
                 break;
             case 'd':
                 printf("Delete: %s\n", name);
-                lock();
                 delete(name);
-                unlock();
                 break;
             default: { /* error */
                 fprintf(stderr, "Error: command to apply\n");
@@ -199,7 +173,7 @@ void applyCommands(){
 }
 
 void args(int argc, char *argv[], FILE **in, FILE **out) {
-    if (argc != 5) {
+    if (argc != 4) {
         printf("ERROR: invalid argument number\n");
         exit(EXIT_FAILURE);
     }
@@ -217,80 +191,46 @@ void args(int argc, char *argv[], FILE **in, FILE **out) {
         printf("ERROR: number of threads must be a positive integer\n");
         exit(EXIT_FAILURE);
     }
-    if (strcmp(argv[4], "mutex") == 0) {strat = MUTEX;}
-    else if (strcmp(argv[4], "rwlock") == 0) {strat = RWLOCK;}
-    else if (strcmp(argv[4], "nosync") == 0) {strat = NOSYNC;}
-    else {
-        printf("ERROR: invalid synchronization strategy\n");
-        exit(EXIT_FAILURE);
-    }
-    if (strat == NOSYNC && numberThreads != 1) {
-        printf("WARNING: number of threads has been set to one to accomplish non-synchronization\n");
-        numberThreads = 1;
-    }
 }
 
 
-void threadPool() {
-    int i;
-    pthread_t *tid_arr;
-    /* Initialize locks */
-    if (numberThreads > 1) {
-        if (pthread_mutex_init(&globalMutex, NULL) || pthread_mutex_init(&fsMutex, NULL)) {
-            printf("ERROR: unsuccessful mutex initialization\n");
-            exit(EXIT_FAILURE);
-        }
-        if (pthread_rwlock_init(&fsRWLock, NULL)) {
-            printf("ERROR: unsuccessful rw-lock initialization\n");
-            exit(EXIT_FAILURE);
-        }
-
-    }
+void createThreadPool() {
     /* Create thread pool */
     tid_arr = (pthread_t*) malloc(sizeof(pthread_t) * (numberThreads));
-    for (i = 0; i < numberThreads; i++){
+    for (int i = 0; i < numberThreads; i++){
         if (pthread_create((&tid_arr[i]), NULL, (void*)applyCommands, NULL) != 0) {
             printf("ERROR: unsuccessful thread creation\n");
             exit(EXIT_FAILURE);
         }
     }
+}
+
+void joinThreadPool() {
     /* Join thread pool */
-    for (i = 0; i < numberThreads; i++) {
+    for (int i = 0; i < numberThreads; i++) {
         if (pthread_join(tid_arr[i], NULL) != 0) {
             printf("ERROR: unsuccessful thread join\n");
             exit(EXIT_FAILURE);
         }
     }
-    /* Free allocated memory and destroy locks */
+    /* Free allocated memory */
     free(tid_arr);
-    if (numberThreads > 1) {
-        if (pthread_mutex_destroy(&globalMutex) || pthread_mutex_destroy(&fsMutex)) {
-            printf("ERROR: unsuccessful mutex destructio\n");
-            exit(EXIT_FAILURE);
-        }
-        if (pthread_rwlock_destroy(&fsRWLock)) {
-            printf("ERROR: rw-lock destruction\n");
-            exit(EXIT_FAILURE);
-        }
-    }
 }
+
 
 
 int main(int argc, char* argv[]) {
     FILE *inputF, *outputF;
-    struct timeval ti, tf;
     double final_time;
+    initLocks();
     /* init filesystem */
     init_fs();
     /* initialization arguments */
     args(argc, argv, &inputF, &outputF);
-    /* Process input from the input file */
+    /* FALTAM COMENTÁRIOS AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA */
+    createThreadPool();
     processInput(inputF);
-    /* Start timer */
-    gettimeofday(&ti, NULL);
-    /* Initialize global mutex, create thread pool and apply commands with those threads */
-    /* join threads and release allocated memory */
-    threadPool(); 
+    joinThreadPool();
     /* Stop timer and print elapsed time*/
     gettimeofday(&tf, NULL);
     final_time = (tf.tv_sec - ti.tv_sec)*1.0 + (tf.tv_usec - ti.tv_usec)/1000000.0;
