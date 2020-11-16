@@ -32,7 +32,6 @@ void initLocks() {
 }
 
 int insertCommand(char* data) {
-    printf("insert\n");
     pthread_mutex_lock(&bufferLock);
     while (numberCommands == MAX_COMMANDS) {pthread_cond_wait(&canInsert, &bufferLock);}
     strcpy(inputCommands[insertIndex++], data);
@@ -45,7 +44,6 @@ int insertCommand(char* data) {
 
 char* removeCommand() {
     char * command;
-    printf("remove\n");
     pthread_mutex_lock(&bufferLock);
     while (numberCommands == 0 && !finished) {pthread_cond_wait(&canRemove, &bufferLock);}
     if (finished && numberCommands == 0) {
