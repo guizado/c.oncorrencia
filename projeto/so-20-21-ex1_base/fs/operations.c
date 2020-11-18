@@ -5,6 +5,16 @@
 #include <pthread.h>
 
 
+void addLockedInode(int inumber, int inodeWaitList[], int *len) {
+    inodeWaitList[*len] = inumber;
+    *len = *len + 1;
+}
+
+void unlockLast(int inodeWaitList[], int *len) {
+    unlock(inodeWaitList[*len - 1]);
+    inodeWaitList[*len - 1] = 0;
+    *len = *len - 1;
+}
 
 /* Given a path, fills pointers with strings for the parent path and child
  * file name
@@ -13,8 +23,6 @@
  *  - parent: reference to a char*, to store parent path
  *  - child: reference to a char*, to store child file name
  */
-
-
 void split_parent_child_from_path(char * path, char ** parent, char ** child) {
 
 	int n_slashes = 0, last_slash_location = 0;
@@ -117,7 +125,7 @@ int lookup_sub_node(char *name, DirEntry *entries) {
  *  - nodeType: type of node
  * Returns: SUCCESS or FAIL
  */
-int create(char *name, type nodeType){
+int create(char *name, type nodeType, int inodeWaitList[], int *len){
 
 	int parent_inumber, child_inumber;
 	char *parent_name, *child_name, name_copy[MAX_FILE_NAME];
@@ -128,14 +136,19 @@ int create(char *name, type nodeType){
 	strcpy(name_copy, name);
 	split_parent_child_from_path(name_copy, &parent_name, &child_name);
 
-	parent_inumber = lookup(parent_name);
+	parent_inumber = lookup(parent_name, inodeWaitList, len);
 
 	if (parent_inumber == FAIL) {
 		printf("failed to create %s, invalid parent dir %s\n",
 		        name, parent_name);
 		return FAIL;
 	}
+
 	inode_get(parent_inumber, &pType, &pdata);
+
+    unlockLast(inodeWaitList, len);
+    lock(parent_inumber, LWRITE);
+    addLockedInode(parent_inumber, inodeWaitList, len);
 
 	if (pType != T_DIRECTORY) {
 		printf("failed to create %s, parent %s is not a dir\n",
@@ -171,7 +184,7 @@ int create(char *name, type nodeType){
  *  - name: path of node
  * Returns: SUCCESS or FAIL
  */
-int delete(char *name){
+int delete(char *name, int inodeWaitList[], int *len){
 
 	int parent_inumber, child_inumber;
 	char *parent_name, *child_name, name_copy[MAX_FILE_NAME];
@@ -182,14 +195,19 @@ int delete(char *name){
 	strcpy(name_copy, name);
 	split_parent_child_from_path(name_copy, &parent_name, &child_name);
 
-	parent_inumber = lookup(parent_name);
+	parent_inumber = lookup(parent_name, inodeWaitList, len);
 
 	if (parent_inumber == FAIL) {
 		printf("failed to delete %s, invalid parent dir %s\n",
 		        child_name, parent_name);
 		return FAIL;
 	}
+
 	inode_get(parent_inumber, &pType, &pdata);
+
+    unlockLast(inodeWaitList, len);
+    lock(parent_inumber, LWRITE);
+    addLockedInode(parent_inumber, inodeWaitList, len);
 
 	if(pType != T_DIRECTORY) {
 		printf("failed to delete %s, parent %s is not a dir\n",
@@ -236,13 +254,16 @@ int delete(char *name){
  *  inumber: identifier of the i-node, if found
  *     FAIL: otherwise
  */
-int lookup(char *name) {
+int lookup(char *name, int inodeWaitList[], int *len) {
 	char full_path[MAX_FILE_NAME];
 	char delim[] = "/";
 
 	strcpy(full_path, name);
 
 	/* start at root node */
+    lock(FS_ROOT, LREAD);
+    addLockedInode(FS_ROOT, inodeWaitList, len);
+
 	int current_inumber = FS_ROOT;
 
 	/* use for copy */
@@ -256,6 +277,8 @@ int lookup(char *name) {
 
 	/* search for all sub nodes */
 	while (path != NULL && (current_inumber = lookup_sub_node(path, data.dirEntries)) != FAIL) {
+        lock(current_inumber, LREAD);
+        addLockedInode(current_inumber, inodeWaitList, len);
 		inode_get(current_inumber, &nType, &data);
 		path = strtok(NULL, delim);
 	}
@@ -263,6 +286,21 @@ int lookup(char *name) {
 	return current_inumber;
 }
 
+/*
+ * Move an entry to a new path
+ * Input:
+ *  - path: path of the existing entry
+ *  - new_path: path which the moving entry will occupy
+ * Returns: SUCCESS or FAIL
+ */
+int move(char *path, char *new_path) {
+    /*
+    int parent_inumber, child_inumber;
+	char *parent_name, *child_name, name_copy[MAX_FILE_NAME];
+    */
+    printf("%s\n%s\n", path, new_path);
+    return FAIL;
+}
 
 /*
  * Prints tecnicofs tree.

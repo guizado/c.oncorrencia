@@ -10,6 +10,7 @@
 
 #define MAX_COMMANDS 150000
 #define MAX_INPUT_SIZE 100
+#define MAX_DEPTH 10
 
 /* Global variables */
 int numberThreads = 0;
@@ -102,6 +103,13 @@ void processInput(FILE * inputfile){
                 if(insertCommand(line))
                     break;
                 return;
+
+            case 'm':
+                if(numTokens != 2)
+                    errorParse();
+                if(insertCommand(line))
+                    break;
+                return;
             
             case '#':
                 break;
@@ -118,8 +126,25 @@ void processInput(FILE * inputfile){
 }
 
 
+/* 
+ * Given an array of locked i-numbers, unlocks the corresponding i-nodes and resets the array
+ * Input:
+ *  - inodeWaitList: array of i-numbers
+ *  - len: number of i-numbers in the array
+ */
+void unlockAll(int inodeWaitList[], int *len) {
+    for (int i = 0; i < *len; i++) {
+        unlock(inodeWaitList[i]);
+        inodeWaitList[i] = 0;
+    }
+    *len = 0;
+}
+
 
 void applyCommands(){
+    int inodeWaitList[MAX_DEPTH];
+    int len = 0;
+
     while (1){
         const char* command = removeCommand();
         if (command == NULL){
@@ -139,11 +164,13 @@ void applyCommands(){
                 switch (type) {
                     case 'f':
                         printf("Create file: %s\n", name);
-                        create(name, T_FILE);
+                        create(name, T_FILE, inodeWaitList, &len);
+                        unlockAll(inodeWaitList, &len);
                         break;
                     case 'd':
                         printf("Create directory: %s\n", name);
-                        create(name, T_DIRECTORY);
+                        create(name, T_DIRECTORY, inodeWaitList, &len);
+                        unlockAll(inodeWaitList, &len);
                         break;
                     default:
                         fprintf(stderr, "Error: invalid node type\n");
@@ -151,7 +178,8 @@ void applyCommands(){
                 }
                 break;
             case 'l': 
-                searchResult = lookup(name);
+                searchResult = lookup(name, inodeWaitList, &len);
+                unlockAll(inodeWaitList, &len);
                 if (searchResult >= 0)
                     printf("Search: %s found\n", name);
                 else
@@ -159,7 +187,8 @@ void applyCommands(){
                 break;
             case 'd':
                 printf("Delete: %s\n", name);
-                delete(name);
+                delete(name, inodeWaitList, &len);
+                unlockAll(inodeWaitList, &len);
                 break;
             default: { /* error */
                 fprintf(stderr, "Error: command to apply\n");
