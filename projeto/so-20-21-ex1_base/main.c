@@ -26,12 +26,21 @@ pthread_cond_t canInsert, canRemove;
 
 struct timeval ti, tf;
 
+/*
+ * Initialize locks and conditions for the circular buffer.
+ */
 void initLocks() {
     pthread_mutex_init(&bufferLock, NULL);
     pthread_cond_init(&canInsert, NULL);
     pthread_cond_init(&canRemove, NULL);
 }
 
+/*
+ * Inserts a command on the buffer, waits if it is full.
+ * Input:
+ *  - data: string representing a command
+ * Returns: 1
+ */
 int insertCommand(char* data) {
     pthread_mutex_lock(&bufferLock);
     while (numberCommands == MAX_COMMANDS) {pthread_cond_wait(&canInsert, &bufferLock);}
@@ -43,6 +52,9 @@ int insertCommand(char* data) {
     return 1;
 }
 
+/*
+ * Removes a command from the buffer, waits if it is empty.
+ */
 char* removeCommand() {
     char * command;
     pthread_mutex_lock(&bufferLock);
@@ -59,12 +71,19 @@ char* removeCommand() {
     return command;
 }
 
-
+/*
+ * For invalid commands.
+ */
 void errorParse(){
     fprintf(stderr, "Error: command invalid\n");
     exit(EXIT_FAILURE);
 }
 
+/*
+ * Opens the inputfile, checks if commands have the correct number of tokens and inserts them.
+ * Input:
+ *  - inputfile: input file, source of commands
+ */
 void processInput(FILE * inputfile){
     char line[MAX_INPUT_SIZE];
 
@@ -118,6 +137,7 @@ void processInput(FILE * inputfile){
             }
         }
     }
+    /* Treat EOF so threads know when to stop trying to remove commands */
     pthread_mutex_lock(&bufferLock);
     finished = 1;
     pthread_cond_broadcast(&canRemove);
@@ -139,7 +159,10 @@ void unlockAll(int inodeWaitList[], int *len) {
     *len = 0;
 }
 
-
+/*
+ * Executes commands from the buffer and stores i-numbers corresponding to
+ * locked nodes to unlock after each command.
+ */ 
 void applyCommands(){
     int inodeWaitList[MAX_DEPTH];
     int len = 0;
@@ -204,6 +227,14 @@ void applyCommands(){
     return;
 }
 
+/*
+ * Parses arguments: input and output files and the numbers of threads to be used.
+ * Input:
+ *  - argc: number of arguments
+ *  - argv: the arguments
+ *  - in: input file
+ *  - out: output file
+ */
 void args(int argc, char *argv[], FILE **in, FILE **out) {
     if (argc != 4) {
         printf("ERROR: invalid argument number\n");
@@ -225,9 +256,10 @@ void args(int argc, char *argv[], FILE **in, FILE **out) {
     }
 }
 
-
+/*
+ * Allocates memory and initializes the threads that will execute the commands.
+ */
 void createThreadPool() {
-    /* Create thread pool */
     tid_arr = (pthread_t*) malloc(sizeof(pthread_t) * (numberThreads));
     for (int i = 0; i < numberThreads; i++){
         if (pthread_create((&tid_arr[i]), NULL, (void*)applyCommands, NULL) != 0) {
@@ -237,15 +269,16 @@ void createThreadPool() {
     }
 }
 
+/*
+ * Waits for all the threads to finish and frees the memory allocated-
+ */
 void joinThreadPool() {
-    /* Join thread pool */
     for (int i = 0; i < numberThreads; i++) {
         if (pthread_join(tid_arr[i], NULL) != 0) {
             printf("ERROR: unsuccessful thread join\n");
             exit(EXIT_FAILURE);
         }
     }
-    /* Free allocated memory */
     free(tid_arr);
 }
 
@@ -254,22 +287,26 @@ void joinThreadPool() {
 int main(int argc, char* argv[]) {
     FILE *inputF, *outputF;
     double final_time;
+    /* initialize locks */
     initLocks();
     /* init filesystem */
     init_fs();
-    /* initialization arguments */
+    /* parse arguments */
     args(argc, argv, &inputF, &outputF);
-    /* FALTAM COMENTÁRIOS AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA */
+    /* create the threads */
     createThreadPool();
+    /* main tread feeds the buffer and the other threads can start removing */
+    /* timer starts here */
     processInput(inputF);
+    /* join the threads */
     joinThreadPool();
-    /* Stop timer and print elapsed time*/
+    /* stop timer and print elapsed time*/
     gettimeofday(&tf, NULL);
     final_time = (tf.tv_sec - ti.tv_sec)*1.0 + (tf.tv_usec - ti.tv_usec)/1000000.0;
     printf("TecnicoFS completed in %.4f seconds\n", final_time);
     /* print tree */
     print_tecnicofs_tree(outputF);
-    /* release allocated memory */
+    /* release allocated memory and close the files */
     destroy_fs();    
     if (fclose(inputF) != 0) exit(EXIT_FAILURE);
     if (fclose(outputF) != 0) exit(EXIT_FAILURE);

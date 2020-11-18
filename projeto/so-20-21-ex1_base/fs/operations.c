@@ -4,19 +4,40 @@
 #include <string.h>
 #include <pthread.h>
 
-
+/*
+ * Add an i-number to an array representing the i-nodes to be unlocked after 
+ * the execution of a command.
+ * Inputs:
+ *  - inumber: identifier of the i-node
+ *  - inodeWaitList: array of i-numbers
+ *  - len: array length
+ */
 void addLockedInode(int inumber, int inodeWaitList[], int *len) {
     inodeWaitList[*len] = inumber;
     *len = *len + 1;
 }
 
+/*
+ * Unlocks and removes the last i-node from an array.
+ * Input:
+ *  - inodeWaitList: array of i-numbers
+ *  - len: array length
+ */
 void unlockLast(int inodeWaitList[], int *len) {
     unlock(inodeWaitList[*len - 1]);
     inodeWaitList[*len - 1] = 0;
     *len = *len - 1;
 }
 
-
+/*
+ * Depending on "try", either locks or trylocks.
+ * Input:
+ *  - inumber: identifier of the i-node
+ *  - inodeWaitList: array of i-numbers
+ *  - len: array length
+ *  - lock_mode: determines if it is a write or a read lock
+ *  - try: determines if this function trylocks or locks
+ */
 void lock_or_trylock(int inumber, int inodeWaitList[], int *len, lock_mode mode, int try) {
     if (try) {
         if (trylock(inumber, mode)) addLockedInode(inumber, inodeWaitList, len);
@@ -330,9 +351,6 @@ int move(char *path, char *new_path, int inodeWaitList[], int *len) {
         return FAIL;
     }
 
-
-
-
     parent_inumber = lookup(parent_name, inodeWaitList, len, 0);
 
     if (parent_inumber == FAIL) {
@@ -363,6 +381,7 @@ int move(char *path, char *new_path, int inodeWaitList[], int *len) {
     lock(child_inumber, LWRITE);
     addLockedInode(child_inumber, inodeWaitList, len);
 
+    /* lookup operation will trylock to avoid deadlocks */
     new_parent_inumber = lookup(new_parent_name, inodeWaitList, len, 1);
 
     if (new_parent_inumber == FAIL) {
