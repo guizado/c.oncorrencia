@@ -19,8 +19,8 @@ void insert_delay(int cycles) {
  * Read-lock or write-lock an i-node.
  * Input:
  *  - inumber: identifier of the i-node
- *  - mode: LREAD to read-lock, WREAD to write-lock
- * Returns: SUCCESS or FAIL
+ *  - mode: LREAD for read-lock, WREAD for write-lock
+ * Returns: 1 if successful, else 0
  */ 
 int lock(int inumber, lock_mode mode) {
     int err;
@@ -33,18 +33,54 @@ int lock(int inumber, lock_mode mode) {
             err = pthread_rwlock_rdlock(&inode_table[inumber].lock);
             if (err) {
                 printf("lock: read lock error (%d, %s) \n", err, strerror(err));
-                return FAIL;
+                return 0;
             }
             break;
         case LWRITE:
             err = pthread_rwlock_wrlock(&inode_table[inumber].lock);
             if (err) {
                 printf("lock: write lock error (%d, %s)\n", err, strerror(err));
-                return FAIL;
+                return 0;
             }
             break;
+        default:
+            exit(EXIT_FAILURE);
+            break;
     }
-    return SUCCESS;
+    return 1;
+}
+
+/*
+ * Tries to lock an i-node if it is not locked
+ * Input: 
+ *  - inumber: identifier of the i-node
+ *  - mode: LREAD for read-lock, LWRITE for write-lock
+ * Returns: 1 if successful, else 0
+ */
+int trylock(int inumber, lock_mode mode) {
+    int err;
+    if ((inumber < 0) || (inumber > INODE_TABLE_SIZE)) {
+        printf("lock: invalid inumber %d\n", inumber);
+        exit(EXIT_FAILURE);
+    } 
+    switch (mode) {
+        case LREAD:
+            err = pthread_rwlock_tryrdlock(&inode_table[inumber].lock);
+            if (err) {
+                return 0;
+            }
+            break;
+        case LWRITE:
+            err = pthread_rwlock_trywrlock(&inode_table[inumber].lock);
+            if (err) {
+                return 0;
+            }
+            break;
+        default:
+            exit(EXIT_FAILURE);
+            break;
+    }
+    return 1;
 }
 
 

@@ -46,14 +46,15 @@ typedef struct inode_t {
 } inode_t;
 
 /*
- * Lock mode:
- *  0. Read
- *  1. Write
+ * lock mode:
+ *  0. LREAD = read lock
+ *  1. LWRITE = write lock
  */
 typedef enum lock_mode {LREAD, LWRITE} lock_mode;
 
 void insert_delay(int cycles);
 int lock(int inumber, lock_mode mode);
+int trylock(int inumber, lock_mode mode);
 int unlock(int inumber);
 int inode_table_init();
 void inode_table_destroy();

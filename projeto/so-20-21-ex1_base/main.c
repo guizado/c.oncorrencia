@@ -73,11 +73,10 @@ void processInput(FILE * inputfile){
 
     /* break loop with ^Z or ^D */
     while (fgets(line, sizeof(line)/sizeof(char), inputfile)) {
-        char token, type;
-        char name[MAX_INPUT_SIZE];
+        char token;
+        char name[MAX_INPUT_SIZE], name2[MAX_INPUT_SIZE];
 
-        int numTokens = sscanf(line, "%c %s %c", &token, name, &type);
-
+        int numTokens = sscanf(line, "%c %s %s", &token, name, name2);
         /* perform minimal validation */
         if (numTokens < 1) {
             continue;
@@ -105,7 +104,7 @@ void processInput(FILE * inputfile){
                 return;
 
             case 'm':
-                if(numTokens != 2)
+                if(numTokens != 3)
                     errorParse();
                 if(insertCommand(line))
                     break;
@@ -151,8 +150,8 @@ void applyCommands(){
             return;
         }
         char token, type;
-        char name[MAX_INPUT_SIZE];
-        int numTokens = sscanf(command, "%c %s %c", &token, name, &type);
+        char name[MAX_INPUT_SIZE], name2[MAX_INPUT_SIZE];
+        int numTokens = sscanf(command, "%c %s %s", &token, name, name2);
         if (numTokens < 2) {
             fprintf(stderr, "Error: invalid command in Queue\n");
             exit(EXIT_FAILURE);
@@ -161,6 +160,7 @@ void applyCommands(){
         int searchResult;
         switch (token) {
             case 'c':
+                type = name2[0];
                 switch (type) {
                     case 'f':
                         printf("Create file: %s\n", name);
@@ -178,7 +178,7 @@ void applyCommands(){
                 }
                 break;
             case 'l': 
-                searchResult = lookup(name, inodeWaitList, &len);
+                searchResult = lookup(name, inodeWaitList, &len, 0);
                 unlockAll(inodeWaitList, &len);
                 if (searchResult >= 0)
                     printf("Search: %s found\n", name);
@@ -188,6 +188,11 @@ void applyCommands(){
             case 'd':
                 printf("Delete: %s\n", name);
                 delete(name, inodeWaitList, &len);
+                unlockAll(inodeWaitList, &len);
+                break;
+            case 'm':
+                printf("Move: %s %s\n", name, name2);
+                move(name, name2, inodeWaitList, &len);
                 unlockAll(inodeWaitList, &len);
                 break;
             default: { /* error */

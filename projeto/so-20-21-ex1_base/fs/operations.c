@@ -16,6 +16,16 @@ void unlockLast(int inodeWaitList[], int *len) {
     *len = *len - 1;
 }
 
+
+void lock_or_trylock(int inumber, int inodeWaitList[], int *len, lock_mode mode, int try) {
+    if (try) {
+        if (trylock(inumber, mode)) addLockedInode(inumber, inodeWaitList, len);
+    }
+    else {
+        if (lock(inumber, mode)) addLockedInode(inumber, inodeWaitList, len);
+    }
+}
+
 /* Given a path, fills pointers with strings for the parent path and child
  * file name
  * Input:
@@ -136,7 +146,7 @@ int create(char *name, type nodeType, int inodeWaitList[], int *len){
 	strcpy(name_copy, name);
 	split_parent_child_from_path(name_copy, &parent_name, &child_name);
 
-	parent_inumber = lookup(parent_name, inodeWaitList, len);
+	parent_inumber = lookup(parent_name, inodeWaitList, len, 0);
 
 	if (parent_inumber == FAIL) {
 		printf("failed to create %s, invalid parent dir %s\n",
@@ -163,6 +173,9 @@ int create(char *name, type nodeType, int inodeWaitList[], int *len){
 
 	/* create node and add entry to folder that contains new node */
 	child_inumber = inode_create(nodeType);
+    lock(child_inumber, LWRITE);
+    addLockedInode(child_inumber, inodeWaitList, len);
+
 	if (child_inumber == FAIL) {
 		printf("failed to create %s in  %s, couldn't allocate inode\n",
 		        child_name, parent_name);
@@ -195,7 +208,7 @@ int delete(char *name, int inodeWaitList[], int *len){
 	strcpy(name_copy, name);
 	split_parent_child_from_path(name_copy, &parent_name, &child_name);
 
-	parent_inumber = lookup(parent_name, inodeWaitList, len);
+	parent_inumber = lookup(parent_name, inodeWaitList, len, 0);
 
 	if (parent_inumber == FAIL) {
 		printf("failed to delete %s, invalid parent dir %s\n",
@@ -254,16 +267,14 @@ int delete(char *name, int inodeWaitList[], int *len){
  *  inumber: identifier of the i-node, if found
  *     FAIL: otherwise
  */
-int lookup(char *name, int inodeWaitList[], int *len) {
+int lookup(char *name, int inodeWaitList[], int *len, int try) {
 	char full_path[MAX_FILE_NAME];
 	char delim[] = "/";
 
 	strcpy(full_path, name);
 
 	/* start at root node */
-    lock(FS_ROOT, LREAD);
-    addLockedInode(FS_ROOT, inodeWaitList, len);
-
+    lock_or_trylock(FS_ROOT, inodeWaitList, len, LREAD, try);
 	int current_inumber = FS_ROOT;
 
 	/* use for copy */
@@ -277,8 +288,7 @@ int lookup(char *name, int inodeWaitList[], int *len) {
 
 	/* search for all sub nodes */
 	while (path != NULL && (current_inumber = lookup_sub_node(path, data.dirEntries)) != FAIL) {
-        lock(current_inumber, LREAD);
-        addLockedInode(current_inumber, inodeWaitList, len);
+        lock_or_trylock(FS_ROOT, inodeWaitList, len, LREAD, try);
 		inode_get(current_inumber, &nType, &data);
 		path = strtok(NULL, delim);
 	}
@@ -293,13 +303,103 @@ int lookup(char *name, int inodeWaitList[], int *len) {
  *  - new_path: path which the moving entry will occupy
  * Returns: SUCCESS or FAIL
  */
-int move(char *path, char *new_path) {
-    /*
-    int parent_inumber, child_inumber;
-	char *parent_name, *child_name, name_copy[MAX_FILE_NAME];
-    */
-    printf("%s\n%s\n", path, new_path);
-    return FAIL;
+int move(char *path, char *new_path, int inodeWaitList[], int *len) {
+    int parent_inumber, child_inumber, new_parent_inumber, counter;
+	char *parent_name, *child_name, path_copy[MAX_FILE_NAME];
+    char *new_parent_name, *new_child_name, new_path_copy[MAX_FILE_NAME], new_path_copy2[MAX_FILE_NAME];
+    char *token;
+
+    type pType, npType;
+	union Data pdata, npdata;
+
+    strcpy(path_copy, path);
+    strcpy(new_path_copy, new_path);
+    strcpy(new_path_copy2, new_path);
+	split_parent_child_from_path(path_copy, &parent_name, &child_name);
+    split_parent_child_from_path(new_path_copy, &new_parent_name, &new_child_name);
+
+    /* Test for infinite loops */
+    counter = 0;
+    token = strtok(new_path_copy2, "/");
+    while (token != NULL) {
+        if (!strcmp(token, child_name)) counter++;
+        token = strtok(NULL, "/");
+    }
+    if (counter > 1) {
+        printf("failed to move %s, infinite loop detected\n", child_name);
+        return FAIL;
+    }
+
+
+
+
+    parent_inumber = lookup(parent_name, inodeWaitList, len, 0);
+
+    if (parent_inumber == FAIL) {
+		printf("failed to move %s, invalid parent dir %s\n",
+		        path, parent_name);
+		return FAIL;
+	}
+    inode_get(parent_inumber, &pType, &pdata);
+
+    unlockLast(inodeWaitList, len);
+    lock(parent_inumber, LWRITE);
+    addLockedInode(parent_inumber, inodeWaitList, len);
+
+
+    if (pType != T_DIRECTORY) {
+		printf("failed to move %s, parent %s is not a dir\n",
+		        path, parent_name);
+		return FAIL;
+	}
+
+    child_inumber = lookup_sub_node(child_name, pdata.dirEntries);
+	if (child_inumber == FAIL) {
+		printf("failed to move %s, does not exist in dir %s\n",
+		       child_name, parent_name);
+		return FAIL;
+	}
+
+    lock(child_inumber, LWRITE);
+    addLockedInode(child_inumber, inodeWaitList, len);
+
+    new_parent_inumber = lookup(new_parent_name, inodeWaitList, len, 1);
+
+    if (new_parent_inumber == FAIL) {
+		printf("failed to move %s, invalid parent dir %s\n",
+		        new_path, new_parent_name);
+		return FAIL;
+	}
+    inode_get(new_parent_inumber, &npType, &npdata);
+
+    if (inodeWaitList[*len - 1] == new_parent_inumber) unlockLast(inodeWaitList, len);
+    if (trylock(new_parent_inumber, LWRITE)) addLockedInode(new_parent_inumber, inodeWaitList, len);
+
+    if (npType != T_DIRECTORY) {
+		printf("failed to move %s, parent %s is not a dir\n",
+		        new_path, new_parent_name);
+		return FAIL;
+	}
+
+	if (lookup_sub_node(child_name, npdata.dirEntries) != FAIL) {
+		printf("failed to move %s, already exists in dir %s\n",
+		       child_name, new_parent_name);
+		return FAIL;
+	}
+
+    if (dir_reset_entry(parent_inumber, child_inumber) == FAIL) {
+		printf("failed to delete %s from dir %s\n",
+		       child_name, parent_name);
+		return FAIL;
+	}
+
+    if (dir_add_entry(new_parent_inumber, child_inumber, new_child_name) == FAIL) {
+		printf("could not add entry %s in dir %s\n",
+		       new_child_name, new_parent_name);
+		return FAIL;
+	}
+    
+    return SUCCESS;
 }
 
 /*
