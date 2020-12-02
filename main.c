@@ -6,11 +6,19 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/uio.h>
+#include <sys/stat.h>
 #include "fs/operations.h"
 
 #define MAX_COMMANDS 150000
 #define MAX_INPUT_SIZE 100
 #define MAX_DEPTH 10
+#define SOCKET "SOCKET"
+#define INDIM 30
+#define OUTDIM 512
 
 /* Global variables */
 int numberThreads = 0;
@@ -25,6 +33,10 @@ pthread_mutex_t bufferLock;
 pthread_cond_t canInsert, canRemove;
 
 struct timeval ti, tf;
+
+int sockfd;
+socklen_t addrlen;
+struct sockaddr_un server_addr;
 
 /*
  * Initialize locks and conditions for the circular buffer.
@@ -282,6 +294,40 @@ void joinThreadPool() {
     free(tid_arr);
 }
 
+int setSockAddrUn(char *path, struct sockaddr_un *addr) {
+
+  if (addr == NULL)
+    return 0;
+
+  bzero((char *)addr, sizeof(struct sockaddr_un));
+  addr->sun_family = AF_UNIX;
+  strcpy(addr->sun_path, path);
+
+  return SUN_LEN(addr);
+}
+
+void createSocket() {
+    if ((sockfd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0) {
+        perror("server: can't open socket");
+        exit(EXIT_FAILURE);
+    }
+    unlink(SOCKET);
+    addrlen = setSockAddrUn(SOCKET, &server_addr);
+}
+
+void socketOn() {
+    while (1) {
+        struct sockaddr_un client_addr;
+        char in_buffer[INDIM], out_buffer[OUTDIM];
+        int c;
+        addrlen=sizeof(struct sockaddr_un);
+        c = recvfrom(sockfd, in_buffer, sizeof(in_buffer)-1, 0, (struct sockaddr *)&client_addr, &addrlen);
+        if (c <= 0) continue;
+        in_buffer[c]='\0';
+
+    }
+
+}
 
 
 int main(int argc, char* argv[]) {
