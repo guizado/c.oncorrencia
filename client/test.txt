@@ -2,3 +2,13 @@ c /a d
 c /b d
 c /c d
 c /d d
+p outA.txt
+c /a/ax f
+c /b/bx f
+d /c
+d /d
+d /a/ax
+d /b/bx
+c /e d
+l /e
+p outB.txt

@@ -1,6 +1,8 @@
 #ifndef API_H
 #define API_H
 
+#define SERVER_RESPONSE_SIZE 3
+
 #include "tecnicofs-api-constants.h"
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -13,6 +15,7 @@ int datagram_send(char *command);
 int tfsCreate(char *path, char nodeType);
 int tfsDelete(char *path);
 int tfsLookup(char *path);
+int tfsPrint(char *path);
 int tfsMove(char *from, char *to);
 int tfsMount(char* serverName);
 int tfsUnmount();

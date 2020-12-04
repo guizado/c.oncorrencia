@@ -110,6 +110,10 @@ int applyCommands(char *command){
             res = move(name, name2, inodeWaitList, &len);
             unlockAll(inodeWaitList, &len);
             return res;
+        case 'p':
+            printf("Print: %s", name);
+            res = printFS(name);
+            return res;
         default: { /* error */
             fprintf(stderr, "Error: command to apply\n");
             exit(EXIT_FAILURE);
@@ -165,26 +169,28 @@ void createSocket(char * path) {
 }
 
 void socketOn() {
+    struct sockaddr_un client_addr;
+    char command[MAX_INPUT_SIZE], response[3];
+    int n, res, err;
+
     while (1) {
-        struct sockaddr_un client_addr;
-        char command[MAX_INPUT_SIZE], response[10];
-        int n, res, err;
         addrlen=sizeof(struct sockaddr_un);
         n = recvfrom(sockfd, command, sizeof(command)-1, 0, (struct sockaddr *)&client_addr, &addrlen);
         if (n <= 0) {
             printf("socketOn: recvfrom error\n");
             continue;
         }
+        command[n] = '\0';
         res = applyCommands(command);
         sprintf(response, "%d", res);
-        response[1] = '\0';
-        puts(response);
+        response[2] = '\0';
         err = sendto(sockfd, response, strlen(response), 0, (struct sockaddr *)&client_addr, addrlen);
         if (err < 0) {
             printf("socketOn: sendto error %d %s\n", err, strerror(err));
             continue;
         }
         print_tecnicofs_tree(stdout);
+        puts("====");
     }
 }
 

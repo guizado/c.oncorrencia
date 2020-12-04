@@ -12,6 +12,7 @@ int create(char *name, type nodeType, int inodeWaitList[], int *len);
 int delete(char *name, int inodeWaitList[], int *len);
 int lookup(char *name, int inodeWaitList[], int *len, int try);
 int move(char *path, char *new_path, int inodeWaitList[], int *len);
+int printFS(char *path);
 void print_tecnicofs_tree(FILE *fp);
 
 #endif /* FS_H */

@@ -421,6 +421,21 @@ int move(char *path, char *new_path, int inodeWaitList[], int *len) {
     return SUCCESS;
 }
 
+int printFS(char *path) {
+    FILE *out_file;
+    /* Write lock na root */
+    lock(0, LWRITE);
+    out_file = fopen(path, "w");
+    if (out_file == NULL) {
+        printf("could not open file %s\n", path);
+        return FAIL;
+    }
+    print_tecnicofs_tree(out_file);
+    unlock(0);
+    fclose(out_file);
+    return SUCCESS;
+}
+
 /*
  * Prints tecnicofs tree.
  * Input:

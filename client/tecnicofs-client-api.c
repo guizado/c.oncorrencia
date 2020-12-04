@@ -6,12 +6,12 @@
 #include <sys/un.h>
 #include <stdio.h>
 
-#define SERVER_RESPONSE_SIZE 2
 
 int datagram_send(char *command) {
     int err;
     char *rec_buffer = malloc(sizeof(char)*SERVER_RESPONSE_SIZE);
     int n = strlen(command);
+    command[n] = '\0';
     err = sendto(sockfd, command, n, 0, (struct sockaddr*)&serv_addr, servlen);
     if (err != n) {
         printf("datagram_send: sendto error %s\n",strerror(err));
@@ -50,15 +50,20 @@ int tfsMove(char *from, char *to) {
 
 int tfsLookup(char *path) {
   char *command = malloc(sizeof(char)*MAX_INPUT_SIZE);
-  sprintf(command, "d %s", path);
+  sprintf(command, "l %s", path);
   if (datagram_send(command) < 0) return -1;
   return 0;
 }
 
+int tfsPrint(char *path){
+    char *command = malloc(sizeof(char)*MAX_INPUT_SIZE);
+    sprintf(command, "p %s", path);
+    if (datagram_send(command) < 0) return -1;
+    return 0;
+}
+
 int tfsMount(char * sockPath) {
-  char *str_pid, *cl_path;
-  cl_path = malloc(sizeof(char)*MAX_FILE_NAME);
-  str_pid = malloc(sizeof(char)* 20);
+  char str_pid[20], cl_path[MAX_FILE_NAME];
   sprintf(str_pid, "%d", getpid());
   sprintf(cl_path, "/tmp/client-");
   strcat(cl_path, str_pid);
