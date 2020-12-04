@@ -17,17 +17,12 @@
 #define MAX_DEPTH 10
 #define MAX_SOCKET_PATH 100
 
-#define OUTDIM 512
-
-/* Global variables */
 int numberThreads = 0;
 pthread_t *tid_arr;
 
 int sockfd;
 socklen_t addrlen;
 struct sockaddr_un server_addr;
-
-
 
 
 /*
@@ -37,7 +32,6 @@ void errorParse(){
     fprintf(stderr, "Error: command invalid\n");
     exit(EXIT_FAILURE);
 }
-
 
 
 /* 
@@ -54,15 +48,19 @@ void unlockAll(int inodeWaitList[], int *len) {
     *len = 0;
 }
 
+
 /*
- * Executes commands from the buffer and stores i-numbers corresponding to
- * locked nodes to unlock after each command.
+ * Execute a command and store i-numbers corresponding to
+ * locked nodes to unlock after command execution.
+ * Input:
+ *  - command: string representation of a command
+ * Returns: SUCCESS or FAIL
  */ 
 int applyCommands(char *command){
     int inodeWaitList[MAX_DEPTH], res, len = 0;
 
     if (command == NULL){
-        return -2;
+        return FAIL;
     }
     char token, type;
     char name[MAX_INPUT_SIZE], name2[MAX_INPUT_SIZE];
@@ -119,34 +117,43 @@ int applyCommands(char *command){
             exit(EXIT_FAILURE);
         }
     }
-    return -2;
+    return FAIL;
 }
 
 
 /*
- * Parses arguments: input and output files and the numbers of threads to be used.
+ * Parses arguments from stdin: number of threads to be used and socket name for server socket
  * Input:
  *  - argc: number of arguments
  *  - argv: the arguments
- *  - in: input file
- *  - out: output file
+ *  - socketname: name for the server's socket
  */
 void args(int argc, char *argv[], char *socketname) {
     if (argc != 3) {
-        printf("ERROR: invalid argument number\n");
+        fprintf(stderr, "ERROR: invalid argument number\n");
         exit(EXIT_FAILURE);
     }
     if ((numberThreads = atoi(argv[1])) <= 0) {
-        printf("ERROR: number of threads must be a positive integer\n");
+        fprintf(stderr,"ERROR: number of threads must be a positive integer\n");
         exit(EXIT_FAILURE);
     }
     strcpy(socketname, argv[2]);
 }
 
+
+/*
+ * Initializes a given socket address
+ * Input:
+ *  - path: path for the socket address
+ *  - addr: pointer to an uninitialized socket address structure
+ * Returns:
+ *  - SUN_LEN(addr): length of socket address structure
+ *  - FAIL: otherwise
+ */
 int setSockAddrUn(char *path, struct sockaddr_un *addr) {
 
   if (addr == NULL)
-    return 0;
+    return FAIL;
 
   bzero((char *)addr, sizeof(struct sockaddr_un));
   addr->sun_family = AF_UNIX;
@@ -155,44 +162,56 @@ int setSockAddrUn(char *path, struct sockaddr_un *addr) {
   return SUN_LEN(addr);
 }
 
+
+/*
+ * Creates a socket for the server, initializing its address
+ * Input:
+ *  - path: path for the socket address
+ * Exit: EXIT_FAILURE on error
+ */
 void createSocket(char * path) {
     if ((sockfd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0) {
-        perror("server: can't open socket");
+        fprintf(stderr,"server: can't open socket");
         exit(EXIT_FAILURE);
     }
     unlink(path);
     addrlen = setSockAddrUn(path, &server_addr);
     if (bind(sockfd, (struct sockaddr *) &server_addr, addrlen) < 0) {
-        perror("server: bind error");
+        fprintf(stderr,"server: bind error");
         exit(EXIT_FAILURE);
     }
 }
 
+
+/*
+ * Infinite loop that waits for a client request corresponding to a command
+ * Protocol:
+ *  - Receives: string representing a command to be executed
+ *  - Responds: SUCCESS or FAIL
+ */
 void socketOn() {
     struct sockaddr_un client_addr;
     char command[MAX_INPUT_SIZE], response[3];
-    int n, res, err;
+    int n, res;
 
     while (1) {
         addrlen=sizeof(struct sockaddr_un);
         n = recvfrom(sockfd, command, sizeof(command)-1, 0, (struct sockaddr *)&client_addr, &addrlen);
         if (n <= 0) {
-            printf("socketOn: recvfrom error\n");
+            fprintf(stderr,"socketOn: recvfrom error\n");
             continue;
         }
         command[n] = '\0';
         res = applyCommands(command);
         sprintf(response, "%d", res);
         response[2] = '\0';
-        err = sendto(sockfd, response, strlen(response), 0, (struct sockaddr *)&client_addr, addrlen);
-        if (err < 0) {
-            printf("socketOn: sendto error %d %s\n", err, strerror(err));
+        if (sendto(sockfd, response, strlen(response), 0, (struct sockaddr *)&client_addr, addrlen) < 0) {
+            fprintf(stderr,"socketOn: sendto error\n");
             continue;
         }
-        print_tecnicofs_tree(stdout);
-        puts("====");
     }
 }
+
 
 /*
  * Allocates memory and initializes the threads that will execute the commands.
@@ -201,11 +220,12 @@ void createThreadPool() {
     tid_arr = (pthread_t*) malloc(sizeof(pthread_t) * (numberThreads));
     for (int i = 0; i < numberThreads; i++){
         if (pthread_create((&tid_arr[i]), NULL, (void*)socketOn, NULL) != 0) {
-            printf("ERROR: unsuccessful thread creation\n");
+            fprintf(stderr,"ERROR: unsuccessful thread creation\n");
             exit(EXIT_FAILURE);
         }
     }
 }
+
 
 /*
  * Waits for all the threads to finish and frees the memory allocated-
@@ -213,7 +233,7 @@ void createThreadPool() {
 void joinThreadPool() {
     for (int i = 0; i < numberThreads; i++) {
         if (pthread_join(tid_arr[i], NULL) != 0) {
-            printf("ERROR: unsuccessful thread join\n");
+            fprintf(stderr,"ERROR: unsuccessful thread join\n");
             exit(EXIT_FAILURE);
         }
     }
@@ -221,22 +241,23 @@ void joinThreadPool() {
 }
 
 
+/*
+ * Main
+ * Steps:
+ *  - 247: initialize file system
+ *  - 248: parse input arguments
+ *  - 250-252: Create socket and initialize thread pool, waits for client request
+ *  - The rest of the program will never run because it continuously waits for client requests, it's just preventive
+ *  - 255-256: Wait for all the threads to end and free allocated memory
+ */ 
 int main(int argc, char* argv[]) {
     char *socketname = malloc(sizeof(char) * MAX_SOCKET_PATH);
-    /* init filesystem */
     init_fs();
-    /* parse arguments */
     args(argc, argv, socketname);
-    /* create socket */
     createSocket(socketname);
-    /* create the threads */
     createThreadPool();
     printf("[SERVER ON]\n");
-    /* join the threads */
     joinThreadPool();
-    /* print tree */
-    print_tecnicofs_tree(stdout);
-    /* release allocated memory and close the files */
     destroy_fs();    
     exit(EXIT_SUCCESS);
 }

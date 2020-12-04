@@ -112,7 +112,6 @@ void destroy_fs() {
  *  - entries: entries of directory
  * Returns: SUCCESS or FAIL
  */
-
 int is_dir_empty(DirEntry *dirEntries) {
 	if (dirEntries == NULL) {
 		return FAIL;
@@ -421,6 +420,12 @@ int move(char *path, char *new_path, int inodeWaitList[], int *len) {
     return SUCCESS;
 }
 
+/*
+ * Prints tecnicofs tree to a given file.
+ * Input:
+ *  - path: path to output file
+ * Returns: SUCCESS or FAIL
+ */
 int printFS(char *path) {
     FILE *out_file;
     /* Write lock na root */

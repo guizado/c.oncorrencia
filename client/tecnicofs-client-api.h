@@ -1,15 +1,11 @@
 #ifndef API_H
 #define API_H
-
-#define SERVER_RESPONSE_SIZE 3
-
-#include "tecnicofs-api-constants.h"
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include "tecnicofs-api-constants.h"
 
-int sockfd, clilen, servlen;
-struct sockaddr_un cli_addr, serv_addr;
+#define SERVER_RESPONSE_SIZE 3
 
 int datagram_send(char *command);
 int tfsCreate(char *path, char nodeType);
