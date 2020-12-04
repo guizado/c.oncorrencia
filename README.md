@@ -1,4 +1,3 @@
 # Sistemas Operativos | Entrega Final
-João Câmara 95598\n
-Diogo Silva 95552
+João Câmara 95598   Diogo Silva 95552
 
